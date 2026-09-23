@@ -3,23 +3,23 @@ from bs4 import BeautifulSoup as bs
 
 url = "https://www.barchart.com/my/watchlist?viewName=main"
 
+
 with sync_playwright() as p:
     ctx = p.chromium.launch_persistent_context(
-        user_data_dir="./barchart_profile",  # cookies/login saved here
-        channel="chrome",                    # your installed Chrome, not bundled Chromium
-        headless=True,                       # make it false for the first login
-        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36",
-
+        user_data_dir="./barchart_profile",
+        # channel="chrome",
+        headless=False,
+        accept_downloads=True,
     )
     page = ctx.pages[0] if ctx.pages else ctx.new_page()
     page.goto(url, wait_until="networkidle")
 
-    # input("Log in if needed, then press Enter...")  # only needed the first run
-    # page.goto(url, wait_until="networkidle")
+    with page.expect_download() as dl_info:
+        page.locator('a[data-bc-download-button*="Watchlist Daily"]').click()    
+    download = dl_info.value
+    print("url:", download.url)
+    print("name:", download.suggested_filename)
+    print("failure:", download.failure())
+    download.save_as(f"./{download.suggested_filename}")
 
-    html = page.content()
     ctx.close()
-
-soup = bs(html, "html.parser")
-print(soup.prettify())
-
