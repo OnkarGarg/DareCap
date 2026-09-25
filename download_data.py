@@ -65,5 +65,7 @@ with sync_playwright() as p:
     with open("watchlist.csv", "wb") as f:
         f.write(resp.body())
 
+    #TODO creating a backup file that doesnt use up our limited download api calls
+
     # closing the browser context, saving all the user data to barchar profile
     ctx.close()
