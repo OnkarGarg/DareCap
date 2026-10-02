@@ -3,3 +3,5 @@ DareCapVenv
 barchart_profile
 credentials.json
 token.pickle
+gdrive_token.json
+storage_state.json
