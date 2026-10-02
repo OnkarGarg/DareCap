@@ -15,6 +15,7 @@ BUCKET = os.environ["STATE_BUCKET"]                     # private S3 bucket hold
 STATE_KEY = os.environ.get("STATE_KEY", "barchart/storage_state.json")
 TOKEN_PARAM = os.environ.get("TOKEN_PARAM", "/scraper/gdrive-token")  # SSM SecureString
 FOLDER_ID = os.environ["DRIVE_FOLDER_ID"]
+ARCHIVE_FOLDER_ID = os.environ["ARCHIVE_DRIVE_FOLDER_ID"]
 
 URL = "https://www.barchart.com/my/watchlist?viewName=main"
 DOWNLOAD_URL = "https://www.barchart.com/my/download"
@@ -99,20 +100,18 @@ def upload():
     drive = build("drive", "v3", credentials=creds, cache_discovery=False)
 
     q = f"name = 'watchlist.csv' and '{FOLDER_ID}' in parents and trashed = false"
-    existing = drive.files().list(q=q, fields="files(id)").execute().get("files", [])
+    existing = drive.files().list(q=q, fields="files(id, createdTime)").execute().get("files", [])
     media = MediaFileUpload(CSV_PATH, mimetype="text/csv", resumable=True)
 
-    if existing:
-        # overwrite in place: file ID (and any links/imports pointing at it) stays the same
-        file_id = existing[0]["id"]
-        drive.files().update(fileId=file_id, media_body=media).execute()
-        for dup in existing[1:]:
-            drive.files().delete(fileId=dup["id"]).execute()
-    else:
-        file_id = drive.files().create(
+    file_id = drive.files().create(
             body={"name": "watchlist.csv", "parents": [FOLDER_ID]},
             media_body=media, fields="id",
         ).execute()["id"]
+        
+    for f in existing:
+        old_file_id = f["id"]
+        old_file_date = f["createdTime"][:10]
+        drive.files().update(fileId=old_file_id, addParents=ARCHIVE_FOLDER_ID, removeParents=FOLDER_ID, body={"name":f"watchlist_{old_file_date}.csv"}).execute()
 
     return file_id
 
