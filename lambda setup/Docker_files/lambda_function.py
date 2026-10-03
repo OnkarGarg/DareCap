@@ -142,22 +142,31 @@ def zscore(body):
         if ticker in ticker_cache:
             symbols_to_read.append(ticker_cache[ticker])
 
-    hist_data = yf.Tickers(symbols_to_read).history(period="2mo")
+    hist_data = yf.Tickers(symbols_to_read).history(period="2mo", progress=False)
     today = pd.Timestamp.now(tz="America/New_York").date()
-    hist_data["Daily % Change"] = hist_close.pct_change() * 100
-    hist_data["Close"] = hist_data["Close"][hist_data["Close"].index.date < today].tail(20)
-    price_means = hist_data["Close"].mean(axis=0)
-    price_stds = hist_data["Close"].std(axis=0)
-    pct_means = hist_data["Daily % Change"].mean(axis=0)
-    pct_stds = hist_data["Daily % Change"].std(axis=0)
+    close = hist_data["Close"]
+    df["%Change"] = pd.to_numeric(
+        df["%Change"].astype(str).str.replace(r"[%,+]", "", regex=True),
+        errors="coerce",
+    )
+    close = close[close.index.date < today]
+    pct = close.pct_change(fill_method=None) * 100
 
+    close20 = close.tail(20)
+    pct20 = pct.tail(20)
+
+    price_means = close20.mean()
+    price_stds = close20.std()
+    pct_means = pct20.mean()
+    pct_stds = pct20.std()
+    
     df["yahoo"] = df["Symbol"].map(ticker_cache)
     df["Price mean20"] = df["yahoo"].map(price_means)
     df["Price std20"] = df["yahoo"].map(price_stds)
     df["Price zscore"] = (df["Latest"] - df["Price mean20"]) / df["Price std20"]
     df["% mean20"] = df["yahoo"].map(pct_means)
-    df["%\ std20"] = df["yahoo"].map(pct_stds)
-    df["% zscore"] = (df["%Change"] - df["% mean20"]) / df["%\ std20"]
+    df["% std20"] = df["yahoo"].map(pct_stds)
+    df["% zscore"] = (df["%Change"] - df["% mean20"]) / df["% std20"]
 
     return df
 
