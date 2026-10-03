@@ -23,7 +23,7 @@ TOKEN_PARAM = os.environ.get("TOKEN_PARAM", "/scraper/gdrive-token")  # SSM Secu
 FOLDER_ID = os.environ["DRIVE_FOLDER_ID"]
 ARCHIVE_FOLDER_ID = os.environ["ARCHIVE_DRIVE_FOLDER_ID"]
 
-URL = "https://www.barchart.com/my/watchlist?viewName=main"
+DAILY_WATCHLIST_URL = "https://www.barchart.com/my/watchlist?watchlist=1798025&viewName=main"
 DOWNLOAD_URL = "https://www.barchart.com/my/download"
 SCOPES = ["https://www.googleapis.com/auth/drive.file"]
 # must match the UA used in setup_local.py when the session was created
@@ -67,7 +67,7 @@ def scrape():
         ctx = browser.new_context(storage_state=STATE_PATH, user_agent=UA)
         page = ctx.new_page()
 
-        page.goto(URL, wait_until="domcontentloaded")
+        page.goto(DAILY_WATCHLIST_URL, wait_until="domcontentloaded")
         try:
             # networkidle can hang on pages with live quote polling; wait for the table instead
             table = page.wait_for_selector("div.bc-datatable[data-api-config]",
@@ -80,7 +80,7 @@ def scrape():
         api_config = json.loads(table.get_attribute("data-api-config"))
         form = {**FORM, "symbols": api_config["api"]["symbols"]}
 
-        headers = {"Referer": URL}
+        headers = {"Referer": DAILY_WATCHLIST_URL}
         xsrf = next((c["value"] for c in ctx.cookies() if c["name"] == "XSRF-TOKEN"), None)
         if xsrf:
             headers["X-XSRF-TOKEN"] = unquote(xsrf)
@@ -144,15 +144,20 @@ def zscore(body):
 
     hist_data = yf.Tickers(symbols_to_read).history(period="2mo")
     today = pd.Timestamp.now(tz="America/New_York").date()
-    closes = hist_data["Close"]
-    closes = closes[closes.index.date < today].tail(20)
-    means = closes.mean(axis=0)
-    stds = closes.std(axis=0)
+    hist_data["Daily % Change"] = hist_close.pct_change() * 100
+    hist_data["Close"] = hist_data["Close"][hist_data["Close"].index.date < today].tail(20)
+    price_means = hist_data["Close"].mean(axis=0)
+    price_stds = hist_data["Close"].std(axis=0)
+    pct_means = hist_data["Daily % Change"].mean(axis=0)
+    pct_stds = hist_data["Daily % Change"].std(axis=0)
 
     df["yahoo"] = df["Symbol"].map(ticker_cache)
-    df["mean20"] = df["yahoo"].map(means)
-    df["std20"] = df["yahoo"].map(stds)
-    df["zscore"] = (df["Latest"] - df["mean20"]) / df["std20"]
+    df["Price mean20"] = df["yahoo"].map(price_means)
+    df["Price std20"] = df["yahoo"].map(price_stds)
+    df["Price zscore"] = (df["Latest"] - df["Price mean20"]) / df["Price std20"]
+    df["% mean20"] = df["yahoo"].map(pct_means)
+    df["%\ std20"] = df["yahoo"].map(pct_stds)
+    df["% zscore"] = (df["%Change"] - df["% mean20"]) / df["%\ std20"]
 
     return df
 
