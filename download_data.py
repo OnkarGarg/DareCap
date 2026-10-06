@@ -13,7 +13,7 @@ form = {
     "isWatchlist": "true",
     "symbols": ",",
     "method": "quotes",
-    "fields": "symbol,symbolName,lastPrice,priceChange,percentChange,openPrice,highPrice,lowPrice,volume,tradeTime,raw,symbolCode,updatedFields,lastPriceDirection,,hasOptions",
+    "fields": "symbol,symbolName,lastPrice,priceChange,percentChange,openPrice,highPrice,lowPrice,volume,tradeTime,raw,symbolCode,updatedFields,lastPriceDirection,hasOptions,relativeStrength14d",
     "page": "1",
     "limit": "5000",
     "hasOptions": "true",
