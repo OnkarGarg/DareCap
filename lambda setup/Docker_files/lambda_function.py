@@ -35,13 +35,23 @@ STATE_PATH = "/tmp/storage_state.json"
 CACHE_PATH = "/tmp/ticker_cache.json"
 CSV_PATH = "/tmp/watchlist.csv"
 
+# so in the future if you want to find the api field,
+# what you are supposed to do is to add that field to a test view,
+# inspect the page, go to the network tab and then filter for "core-api"
+# and the reload the page and the network activity that is captured contains the field name
+
 FORM = {
     "fileName": "Watchlist Daily-Intraday",
     "meta": "symbol.normalized,field.shortName,field.type",
     "isWatchlist": "true",
     "symbols": ",",
     "method": "quotes",
-    "fields": "symbol,symbolName,lastPrice,priceChange,percentChange,openPrice,highPrice,lowPrice,volume,tradeTime,raw,symbolCode,updatedFields,lastPriceDirection,hasOptions,relativeStrength14d",
+    
+    "fields": "symbol,symbolName,lastPrice,priceChange,"
+    "percentChange,openPrice,highPrice,lowPrice,volume,"
+    "tradeTime,raw,symbolCode,updatedFields,lastPriceDirection,"
+    "hasOptions,relativeStrength14d,optionsImpliedVolatilityRank1y",
+
     "page": "1",
     "limit": "5000",
     "hasOptions": "true",
