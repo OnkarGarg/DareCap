@@ -2,6 +2,8 @@ import json
 import os
 import io
 from urllib.parse import unquote
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import boto3
 from botocore.exceptions import ClientError
@@ -15,8 +17,22 @@ from playwright.sync_api import sync_playwright
 import yfinance as yf
 import pandas as pd
 
+'''cd "C:\Users\onkar\DareCap\lambda setup\Docker_files"
+
+$REGION = "eu-north-1"
+$ACCT = aws sts get-caller-identity --query Account --output text
+$REGISTRY = "$ACCT.dkr.ecr.$REGION.amazonaws.com"
+$REPO = "$REGISTRY/barchart_scraper"
+
+aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $REGISTRY
+docker build --platform linux/amd64 --provenance=false -t "${REPO}:latest" .
+docker push "${REPO}:latest"
+
+aws lambda update-function-code --function-name barchart-scraper --image-uri "${REPO}:latest" --region $REGION'''
+
+
 # ---- config (set as Lambda environment variables) ----
-BUCKET = os.environ["STATE_BUCKET"]                     # private S3 bucket holding the Barchart session
+STATE_BUCKET = os.environ["STATE_BUCKET"]                     # private S3 bucket holding the Barchart session
 STATE_KEY = os.environ.get("STATE_KEY", "barchart/storage_state.json")
 TICKER_CACHE = os.environ.get("TICKER_CACHE", "barchart/ticker_cache.json")
 TOKEN_PARAM = os.environ.get("TOKEN_PARAM", "/scraper/gdrive-token")  # SSM SecureString
@@ -65,11 +81,13 @@ FORM = {
 
 s3 = boto3.client("s3")
 ssm = boto3.client("ssm")
+ARCHIVE_BUCKET = os.environ["ARCHIVE_BUCKET"]
+S3_PREFIX = os.environ.get("S3_PREFIX", "raw/watchlist/")
 
 
 def scrape():
     # pull the saved login session (cookies + localStorage) from S3
-    s3.download_file(BUCKET, STATE_KEY, STATE_PATH)
+    s3.download_file(STATE_BUCKET, STATE_KEY, STATE_PATH)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(args=[
@@ -106,8 +124,9 @@ def scrape():
         ctx.storage_state(path=STATE_PATH)
         browser.close()
 
-    s3.upload_file(STATE_PATH, BUCKET, STATE_KEY)
+    s3.upload_file(STATE_PATH, STATE_BUCKET, STATE_KEY)
     return body
+
 
 def zscore(body):
     df = pd.read_csv(io.BytesIO(body))
@@ -118,7 +137,7 @@ def zscore(body):
     names = df.set_index("Symbol")["Name"]
 
     try:
-        s3.download_file(BUCKET, TICKER_CACHE, CACHE_PATH)
+        s3.download_file(STATE_BUCKET, TICKER_CACHE, CACHE_PATH)
         with open(CACHE_PATH) as f:
             ticker_cache = json.load(f)
     except ClientError:
@@ -148,7 +167,7 @@ def zscore(body):
 
     with open(CACHE_PATH, "w") as f:
         json.dump(ticker_cache, f)
-    s3.upload_file(CACHE_PATH, BUCKET, TICKER_CACHE)
+    s3.upload_file(CACHE_PATH, STATE_BUCKET, TICKER_CACHE)
 
     for ticker in symbols:
         if ticker in ticker_cache:
@@ -182,6 +201,14 @@ def zscore(body):
 
     return df
 
+
+def archive_to_s3(csv_bytes: bytes) -> str:
+    d = datetime.now(ZoneInfo("America/New_York")).date().isoformat()
+    key = f"{S3_PREFIX}{d}.csv"
+    s3.put_object(Bucket=ARCHIVE_BUCKET, Key=key, Body=csv_bytes, ContentType="text/csv")
+    return key
+
+
 def upload():
     info = json.loads(ssm.get_parameter(Name=TOKEN_PARAM, WithDecryption=True)["Parameter"]["Value"])
     creds = Credentials.from_authorized_user_info(info, SCOPES)
@@ -209,6 +236,9 @@ def lambda_handler(event, context):
     body = scrape()
     df = zscore(body=body)
     df.to_csv(CSV_PATH, index=False)
+    with open(CSV_PATH, "rb") as f:
+        s3_upload_key = archive_to_s3(f.read())
+    print(f"Uploaded {s3_upload_key} to S3 bucket")
     file_id = upload()
     print(f"Uploaded watchlist.csv -> {file_id}")
-    return {"status": "ok", "file_id": file_id}
+    return {"status": "ok", "file_id": file_id, "s3_upload_key":s3_upload_key}
