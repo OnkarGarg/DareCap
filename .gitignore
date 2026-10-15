@@ -5,3 +5,7 @@ credentials.json
 token.pickle
 gdrive_token.json
 storage_state.json
+global-bundle.pem
+creds.csv
+users.sql
+lambda setup/watchlist_loader/build/
