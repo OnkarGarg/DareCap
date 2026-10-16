@@ -17,18 +17,18 @@ from playwright.sync_api import sync_playwright
 import yfinance as yf
 import pandas as pd
 
-'''cd "C:\Users\onkar\DareCap\lambda setup\Docker_files"
+# cd "C:\Users\onkar\DareCap\lambda setup\Docker_files"
 
-$REGION = "eu-north-1"
-$ACCT = aws sts get-caller-identity --query Account --output text
-$REGISTRY = "$ACCT.dkr.ecr.$REGION.amazonaws.com"
-$REPO = "$REGISTRY/barchart_scraper"
+# $REGION = "eu-north-1"
+# $ACCT = aws sts get-caller-identity --query Account --output text
+# $REGISTRY = "$ACCT.dkr.ecr.$REGION.amazonaws.com"
+# $REPO = "$REGISTRY/barchart_scraper"
 
-aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $REGISTRY
-docker build --platform linux/amd64 --provenance=false -t "${REPO}:latest" .
-docker push "${REPO}:latest"
+# aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $REGISTRY
+# docker build --platform linux/amd64 --provenance=false -t "${REPO}:latest" .
+# docker push "${REPO}:latest"
 
-aws lambda update-function-code --function-name barchart-scraper --image-uri "${REPO}:latest" --region $REGION'''
+# aws lambda update-function-code --function-name barchart-scraper --image-uri "${REPO}:latest" --region $REGION
 
 
 # ---- config (set as Lambda environment variables) ----
