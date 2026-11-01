@@ -1,11 +1,18 @@
 import re
 import urllib.parse
 import load
+import earnings_load
 
 KEY_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\.csv$")
 
 def handler(event, context):
     for rec in event["Records"]:
+        key = urllib.parse.unquote_plus(rec["s3"]["object"]["key"])
+        if key.startswith(earnings_load.PREFIX) and earnings_load.KEY_RE.search(key):
+            earnings_load.load_file(key)
+            continue
+        m = KEY_RE.search(key)
+
         key = urllib.parse.unquote_plus(rec["s3"]["object"]["key"])
         m = KEY_RE.search(key)
         if not key.startswith(load.PREFIX) or not m:
