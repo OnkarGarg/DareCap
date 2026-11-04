@@ -1,7 +1,7 @@
 import json
 import os
 import io
-from urllib.parse import unquote
+from urllib.parse import unquote, urlparse, parse_qs
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -40,7 +40,8 @@ TOKEN_PARAM = os.environ.get("TOKEN_PARAM", "/scraper/gdrive-token")  # SSM Secu
 FOLDER_ID = os.environ["DRIVE_FOLDER_ID"]
 ARCHIVE_FOLDER_ID = os.environ["ARCHIVE_DRIVE_FOLDER_ID"]
 
-DAILY_WATCHLIST_URL = "https://www.barchart.com/my/watchlist?watchlist=1798025&viewName=main"
+WATCHLIST_ID = 569527
+DAILY_WATCHLIST_URL = f"https://www.barchart.com/my/watchlist?watchlist={WATCHLIST_ID}&viewName=main"
 DOWNLOAD_URL = "https://www.barchart.com/my/download"
 CORE_API = "https://www.barchart.com/proxies/core-api/v1/quotes/get"
 EARNINGS_PAGE = "https://www.barchart.com/stocks/earnings-dividends"
@@ -136,18 +137,57 @@ def scrape():
         ctx = browser.new_context(storage_state=STATE_PATH, user_agent=UA)
         page = ctx.new_page()
 
-        page.goto(DAILY_WATCHLIST_URL, wait_until="domcontentloaded")
-        try:
-            # networkidle can hang on pages with live quote polling; wait for the table instead
-            table = page.wait_for_selector("div.bc-datatable[data-api-config]",
-                                           state="attached", timeout=30_000)
-        except PWTimeout:
-            if "login" in page.url:
-                raise RuntimeError("Barchart session expired - rerun setup_local.py and re-upload state")
-            raise RuntimeError(f"Watchlist table not found (blocked or layout changed). URL: {page.url}")
+        # page.goto(DAILY_WATCHLIST_URL, wait_until="domcontentloaded")
+        # try:
+        #     # networkidle can hang on pages with live quote polling; wait for the table instead
+        #     table = page.wait_for_selector("div.bc-datatable[data-api-config]",
+        #                                    state="attached", timeout=30_000)
+        # except PWTimeout:
+        #     ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+        #     s3.put_object(Bucket=STATE_BUCKET, Key=f"debug/{ts}.png",
+        #                   Body=page.screenshot(full_page=True))
+        #     s3.put_object(Bucket=STATE_BUCKET, Key=f"debug/{ts}.html",
+        #                   Body=page.content().encode())
+        #     title = page.title()
+        #     print(f"TITLE: {title!r}  debug/{ts}.*")
+        #     logged_out = ("login" in page.url
+        #                   or page.locator("a[href*='/login']").count() > 0)
+        #     if logged_out:
+        #         raise RuntimeError("Barchart session expired - rerun setup_local.py and re-upload state")
+        #     raise RuntimeError(f"Watchlist table not found (blocked or layout changed). "
+        #                        f"Title: {title!r} URL: {page.url}")
 
-        api_config = json.loads(table.get_attribute("data-api-config"))
-        form = {**FORM, "symbols": api_config["api"]["symbols"]}
+        # api_config = json.loads(table.get_attribute("data-api-config"))
+        # form = {**FORM, "symbols": api_config["api"]["symbols"]}
+
+        try:
+            with page.expect_request(
+                lambda r: "/proxies/core-api/v1/quotes/get" in r.url and "isWatchlist=true" in r.url,
+                timeout=45_000,
+            ) as req_info:
+                page.goto(DAILY_WATCHLIST_URL, wait_until="domcontentloaded")
+        except PWTimeout:
+            ts = datetime.utcnow().strftime("%Y%m%dT%H%M%S")
+            s3.put_object(Bucket=STATE_BUCKET, Key=f"debug/{ts}.png",
+                          Body=page.screenshot(full_page=True))
+            s3.put_object(Bucket=STATE_BUCKET, Key=f"debug/{ts}.html",
+                          Body=page.content().encode())
+            logged_out = page.evaluate(
+                "!document.documentElement.classList.contains('bc-authenticated')")
+            if logged_out:
+                raise RuntimeError("Barchart session expired - rerun setup_local.py and re-upload state")
+            raise RuntimeError(f"Watchlist quote request not seen (blocked or layout changed). "
+                               f"Title: {page.title()!r} debug/{ts}.*")
+
+        # guard against Barchart silently falling back to a different watchlist again
+        boot = json.loads(page.locator("#bc-wl-v2-bootstrap").text_content())
+        if boot.get("currentWatchlistId") != WATCHLIST_ID:
+            raise RuntimeError(f"Loaded watchlist {boot.get('currentWatchlistId')}, expected {WATCHLIST_ID}. "
+                               f"Available: {boot.get('watchlists')}")
+
+        symbols = parse_qs(urlparse(req_info.value.url).query)["symbols"][0]
+        print(f"Watchlist {WATCHLIST_ID}: {symbols.count(',') + 1} symbols")
+        form = {**FORM, "symbols": symbols}
 
         headers = {"Referer": DAILY_WATCHLIST_URL}
         xsrf = next((c["value"] for c in ctx.cookies() if c["name"] == "XSRF-TOKEN"), None)
