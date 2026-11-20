@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, parse_qs
 from zoneinfo import ZoneInfo
 
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, Error as PlaywrightError
 
 BASE = "https://www.barchart.com"
 WATCHLIST_ID = 569527
@@ -153,14 +153,52 @@ def parse_news_payload(payload, now_utc):
 
 # ---------- Barchart calls ----------
 
+# def request(ctx, method, url, label, **kw):
+#     """ctx.request.get/post with spacing and backoff on 429/5xx. Returns response or None."""
+#     wait = 5
+#     for attempt in range(MAX_RETRIES + 1):
+#         time.sleep(REQUEST_DELAY)
+#         r = getattr(ctx.request, method)(url, **kw)
+#         if r.ok:
+#             return r
+#         if r.status == 429 or r.status >= 500:
+#             if attempt == MAX_RETRIES:
+#                 break
+#             ra = r.headers.get("retry-after")
+#             delay = int(ra) if ra and ra.isdigit() else wait
+#             print(f"  {label}: HTTP {r.status}, retry in {delay}s")
+#             time.sleep(delay)
+#             wait = min(wait * 2, 120)
+#             continue
+#         break
+#     print(f"  {label}: HTTP {r.status}, giving up")
+#     return None
+
+TRANSIENT = ("ECONNRESET", "ETIMEDOUT", "ECONNREFUSED", "EPIPE", "socket hang up", "Timeout")
+
+
 def request(ctx, method, url, label, **kw):
-    """ctx.request.get/post with spacing and backoff on 429/5xx. Returns response or None."""
+    """ctx.request.get/post with spacing and backoff on 429/5xx and transient
+    network errors. Returns response or None."""
     wait = 5
+    status = None
     for attempt in range(MAX_RETRIES + 1):
         time.sleep(REQUEST_DELAY)
-        r = getattr(ctx.request, method)(url, **kw)
+        try:
+            r = getattr(ctx.request, method)(url, **kw)
+        except PlaywrightError as e:
+            # first line only: the full message includes request headers (cookies)
+            msg = str(e).splitlines()[0]
+            if attempt < MAX_RETRIES and any(t in msg for t in TRANSIENT):
+                print(f"  {label}: {msg}, retry in {wait}s")
+                time.sleep(wait)
+                wait = min(wait * 2, 120)
+                continue
+            print(f"  {label}: {msg}, giving up")
+            return None
         if r.ok:
             return r
+        status = r.status
         if r.status == 429 or r.status >= 500:
             if attempt == MAX_RETRIES:
                 break
@@ -171,9 +209,8 @@ def request(ctx, method, url, label, **kw):
             wait = min(wait * 2, 120)
             continue
         break
-    print(f"  {label}: HTTP {r.status}, giving up")
+    print(f"  {label}: HTTP {status}, giving up")
     return None
-
 
 def clean_headers(h):
     return {k: v for k, v in h.items() if not k.startswith(":") and k.lower() not in DROP_HEADERS}
